@@ -2,7 +2,12 @@ from __future__ import division, print_function, absolute_import
 
 import os
 import tensorflow as tf
-import keras.backend.tensorflow_backend as KTF
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.allow_growth = True
+sess = tf.compat.v1.Session(config=config)
+
+# your code 
+# import keras.backend.tensorflow_backend as KTF
 
 from timeit import time
 import warnings
@@ -118,18 +123,10 @@ def load_model():
     return yolo_nas, encoder, metric, tracker
 
 
-def detection(path):
+def detection():
     nms_max_overlap = 0.4
     yolo_nas, encoder, metric, tracker = load_model()
 
-    cap = cv2.VideoCapture(path)
-
-    if not cap.isOpened():
-        print('Error opening video stram or file')
-
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
 
     out_dir = 'videos_output/'
     if not os.path.exists(out_dir):
@@ -340,3 +337,61 @@ def detection(path):
                         final_fuse_id[combined_ids].append(nid)
                     else:
                         final_fuse_id[nid] = [nid]
+    print('Final ids and their sub-ids : ', final_fuse_id)
+    print('MOT took {} seconds'.format(int(time.time() - t1)))
+    t2 = time.time()
+    
+    # To generate MOT for each person, Declasre is_vis to True
+    
+    is_vis = True
+    if is_vis:
+        print('Writing videos for each ID...')
+        output_dir = 'video_output/tracklets/'
+        if not os.path.exists(output_dir):
+            os.makedir(output_dir)
+        
+        loadvideo = LoadVideo(combined_videos)
+        video_capture, frame_rate, w,h = loadvideo.get_VideoLabels()
+        for idx in final_fuse_id:
+            tracking_path =  os.path.join(output_dir,str(idx) + '.mp4')
+            out = cv2.VideoWriter(tracking_path,fourcc,frame_rate, (w,h))
+            for i in final_fuse_id[idx]:
+                for f in track_cnt[i]:
+                    video_capture.set(cv2.CAP_PROP_POS_FRAMES, f[0])
+                    _,frame = video_capture.read()
+                    text_scale,text_thickness,line_thickness = get_FrameLabels(frame)
+                    cv2_addBox(idx, frame, f[1],f[2],f[3],f[4], line_thickness, text_thickness,text_scale)
+                    out.write(frame)
+                out.release()
+            video_capture.release()
+        
+    # Generate a single video with complete MOT/ReID
+    if args.all:
+        loadvideo = LoadVideo(combined_videos)
+        video_capture, frame_rate, w,h = loadvideo.get_VideoLabels()
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        complete_path = out_dir + '/Complete' + '.mp4'
+        out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w,h))
+        
+        for frame in range(len(all_frames)):
+            frame2 = all_frames(frame)
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES,frame)
+            _,frame2 = video_capture.read()
+            for idx in final_fuse_id:
+                for i in final_fuse_id[idx]:
+                    for f in track_cnt[i]:
+                        if frame == f[0]:
+                            text_scale,text_thickness, line_thickness = get_FrameLabels()
+                            cv2_addBox(idx,frame2,f[1],f[2],f[3],f[4], line_thickness,text_thickness,text_scale)
+            
+            out.write(frame2)
+        out.release()
+        video_capture.release()
+        
+    os.remove(combined_videos)
+    print('\n Writing videos took {} seconds'.format(int(time.time() - t2)))
+    print('Final Video ar {}'.format(complete_path))
+    print('Total: {}'.format(int(time.time() - t1)))
+    
+if __name__ == '__main__':
+    detection()
